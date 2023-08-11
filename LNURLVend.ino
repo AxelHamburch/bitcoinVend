@@ -9,19 +9,47 @@ fs::SPIFFSFS &FlashFS = SPIFFS;
 
 #include <Keypad.h>
 #include <AutoConnect.h>
-#include <SPI.h>
-#include <Wire.h>
+// #include <SPI.h>
+// #include <Wire.h>
 #include <TFT_eSPI.h>
 #include <Hash.h>
-#include <ArduinoJson.h>
+// #include <ArduinoJson.h>
 #include "qrcoded.h"
-#include "Bitcoin.h"
-#include "esp_adc_cal.h"
+// #include "Bitcoin.h"
+// #include "esp_adc_cal.h"
+
+#include <esp32-hal-touch.h>
 
 #define PARAM_FILE "/elements.json"
 #define KEY_FILE "/thekey.txt"
 
-//Variables // 15,2,3 pins
+touch_pad_t touchPin;
+
+/* ### CONFIGURATION HELP START ###
+
+## GPIO and connetion info #
+GPIO Display: 5 (CS) / 16 (RES) / 17 (RS/AO/DC) / 18 (SCK/CLK) / 23 (SDA/SDI/MOSI) / VCC (5V) / GND (GND) / LEDA (3,3V/LED-Backlight)
+GPIO Keypad: [rows] = {12, 14, 25, 26} / [cols] = {27, 33, 32, 2};
+GPIO Power Relay: 22
+GOIO Free (Output): (3), 4, 13, 15, 21  / ( ) = may have signal during boot
+GPIO Default example: Product[GPIO] 1[21] 2[13] 3[15] 4[4] 5[3] 
+
+## Display settings #
+# Edit TFT_eSPI library for your display -> ..\libraries\TFT_eSPI\User_Setup.h
+# At "Section 1. Call up the right driver file and any options for it" undo the comment // for e.g. display "1,8" SPI TFT 128 x 160 pixel"
+ #define ST7735_DRIVER
+ #define TFT_WIDTH  128
+ #define TFT_HEIGHT 160 
+ #define ST7735_REDTAB
+# At section "EDIT THE PIN NUMBERS IN THE LINES FOLLOWING TO SUIT YOUR ESP32 SETU" undo the comment // and set your GPIOs
+ #define TFT_MOSI 23  // Data signal
+ #define TFT_SCLK 18  // Clock signal
+ #define TFT_CS 5     // Chip select
+ #define TFT_DC 17    // Data Command
+ #define TFT_RST 16   // Reset
+# NOTE: Set it for you display type and comment the others of with //
+
+### CONFIGURATION HELP END ### */ 
 
 /////////////////////////////////
 ///////////CHANGE////////////////
@@ -58,9 +86,9 @@ String qrData;
 String dataId;
 String addressNo;
 String pinToShow;
-String lnurlVendProdNames[] = {"", "", "", "", "", "", "", "", ""};
-String lnurlVendProdAmounts[] = {"", "", "", "", "", "", "", "", ""};
-String lnurlVendProdPins[] = {"", "", "", "", "", "", "", "", ""};
+String lnurlVendProdNames[] = {"", "", "", "", "", ""};
+String lnurlVendProdAmounts[] = {"", "", "", "", "", ""};
+String lnurlVendProdPins[] = {"", "", "", "", "", "",};
 String selection;
 String virtkey;
 int menuItemNo = 0;
@@ -107,60 +135,42 @@ static const char PAGE_ELEMENTS[] PROGMEM = R"(
       "name": "lnurlvendmotortime",
       "type": "ACInput",
       "label": "Motor time millisecs",
-      "vale": "2500"
+      "value": "3000"
     },
     {
       "name": "lnurlvendprodone",
       "type": "ACInput",
       "label": "Product One",
-      "value": "sweets,0.10,2"
+      "value": "Product_No.1,0.01,21"
     },
      {
       "name": "lnurlvendprodtwo",
       "type": "ACInput",
       "label": "Product Two",
-      "value": ""
+      "value": "Product_No.2,0.02,13"
     },
      {
       "name": "lnurlvendprodthree",
       "type": "ACInput",
       "label": "Product Three",
-      "value": ""
+      "value": "Product_No.3,0.03,15"
     },
      {
       "name": "lnurlvendprodfour",
       "type": "ACInput",
       "label": "Product Four",
-      "value": ""
+      "value": "Product_No.4,0.04,4"
     },
      {
       "name": "lnurlvendprodfive",
       "type": "ACInput",
       "label": "Product Five",
-      "value": ""
+      "value": "Product_No.5,0.05,3"
     },
      {
       "name": "lnurlvendprodsix",
       "type": "ACInput",
       "label": "Product Six",
-      "value": ""
-    },
-     {
-      "name": "lnurlvendprodseven",
-      "type": "ACInput",
-      "label": "Product Seven",
-      "value": ""
-    },
-     {
-      "name": "lnurlvendprodeight",
-      "type": "ACInput",
-      "label": "Product Eight",
-      "value": ""
-    },
-     {
-      "name": "lnurlvendprodnine",
-      "type": "ACInput",
-      "label": "Product Nine",
       "value": ""
     },
     {
@@ -210,7 +220,7 @@ static const char PAGE_SAVE[] PROGMEM = R"(
       "name": "ok",
       "type": "ACSubmit",
       "value": "OK",
-      "uri": "/vendconfig"
+      "uri": "/_ac"
     }
   ]
 }
@@ -228,16 +238,17 @@ AutoConnectAux saveAux;
 //////////////KEYPAD///////////////////
 
 const byte rows = 4; //four rows
-const byte cols = 3; //three columns
+const byte cols = 4; //three columns
 char keys[rows][cols] = {
-  {'1','2','3'},
-  {'4','5','6'},
-  {'7','8','9'},
-  {'*','0','#'}
+  {'1', '2', '3', 'A'},
+  {'4', '5', '6', 'B'},
+  {'7', '8', '9', 'C'},
+  {'*', '0', '#', 'D'}
 };
 
-byte rowPins[rows] = {12, 14, 27, 26};
-byte colPins[cols] = {25, 33, 32};
+byte rowPins[rows] = {12, 14, 25, 26};
+byte colPins[cols] = {27, 33, 32, 2};
+
 
 Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, rows, cols );
 int checker = 0;
@@ -248,13 +259,23 @@ char maxdig[20];
 void setup()
 {
   Serial.begin(115200);
+  Serial.println("[START]");
+  Serial.println("# void setup()");
   
   h.begin();
-  pinMode(3, OUTPUT); 
   pinMode(22, OUTPUT);
+  pinMode(13, OUTPUT); 
+  pinMode(15, OUTPUT); 
+  pinMode(21, OUTPUT); 
+  pinMode(3, OUTPUT); 
+  pinMode(4, OUTPUT); 
+  digitalWrite(13, HIGH);
+  digitalWrite(15, HIGH);
+  digitalWrite(21, HIGH);
+  digitalWrite(3, HIGH);
+  digitalWrite(4, HIGH);
 
-  // load buttons
-  
+ 
   FlashFS.begin(FORMAT_ON_FAIL);
   SPIFFS.begin(true);
   if(format == true){
@@ -274,6 +295,9 @@ void setup()
     {
       apPassword = apPasswordChar;
     }
+
+// baseURLvend , secretvend , currencyvend
+// https://lnbits.ereignishorizont.xyz/lnurldevice/api/v1/lnurl/walletid , secret , sat
 
     const JsonObject lnurlVRoot = doc[1];
     const char *lnurlvendChar = lnurlVRoot["value"];
@@ -345,36 +369,6 @@ void setup()
       lnurlVendProdPins[5] = getValue(lnurlVendProdSixStr, ',', 2);
       pinMode(lnurlVendProdPins[5].toInt(), OUTPUT); 
     }
-
-    if(doc[9] != ""){
-      const JsonObject lnurlVSeven = doc[9];
-      const char *lnurlVendProdSevenChar = lnurlVSeven["value"];
-      String lnurlVendProdSevenStr = lnurlVendProdSevenChar;
-      lnurlVendProdNames[6] = getValue(lnurlVendProdSevenStr, ',', 0);
-      lnurlVendProdAmounts[6] = getValue(lnurlVendProdSevenStr, ',', 1);
-      lnurlVendProdPins[6] = getValue(lnurlVendProdSevenStr, ',', 2);
-      pinMode(lnurlVendProdPins[6].toInt(), OUTPUT); 
-    }
-
-    if(doc[10] != ""){
-      const JsonObject lnurlVEight = doc[10];
-      const char *lnurlVendProdEightChar = lnurlVEight["value"];
-      String lnurlVendProdEightStr = lnurlVendProdEightChar;
-      lnurlVendProdNames[7] = getValue(lnurlVendProdEightStr, ',', 0);
-      lnurlVendProdAmounts[7] = getValue(lnurlVendProdEightStr, ',', 1);
-      lnurlVendProdPins[7] = getValue(lnurlVendProdEightStr, ',', 2);
-      pinMode(lnurlVendProdPins[7].toInt(), OUTPUT); 
-    }
-
-    if(doc[11] != ""){
-      const JsonObject lnurlVNine = doc[11];
-      const char *lnurlVendProdNineChar = lnurlVNine["value"];
-      String lnurlVendProdNineStr = lnurlVendProdNineChar;
-      lnurlVendProdNames[8] = getValue(lnurlVendProdNineStr, ',', 0);
-      lnurlVendProdAmounts[8] = getValue(lnurlVendProdNineStr, ',', 1);
-      lnurlVendProdPins[8] = getValue(lnurlVendProdNineStr, ',', 2);
-      pinMode(lnurlVendProdPins[8].toInt(), OUTPUT); 
-    }
   }
 
   paramFile.close();
@@ -384,6 +378,9 @@ void setup()
   config.autoReconnect = true;
   config.reconnectInterval = 1; // 30s
   config.beginTimeout = 10000UL;
+
+  // wakeUpScreen
+  wakeUpScreen();
 
   // start portal (any key pressed on startup)
   const char key = keypad.getKey();
@@ -464,31 +461,43 @@ void setup()
     portal.config(config);
     portal.begin();
   }
+Serial.println("## void loop()");
+print_wakeup_touchpad();
 }
-
+  
 void loop() {
-   wakeUpScreen();
    unsigned long check = millis();
    bool cntr = false;
+   bool innerCntr = false;
+   if (String(baseURLvend) != ""){
    selectProduct();
    inputs = "";
    int timer;
+   Serial.println("while (cntr)");
    while (cntr == false){
      char key = keypad.getKey();
      if (key != NO_KEY){
+      Serial.println("ctrl Taste: " + String(key));
        virtkey = String(key);
-       for (int i = 0; i < sizeof(lnurlVendProdNames); i++){
+       for (int i = 0; i < (sizeof(lnurlVendProdNames) / sizeof(lnurlVendProdNames[0])); i++){
+        Serial.println(" Cleck element: " + String(i) + " of " + String(sizeof(lnurlVendProdNames) / sizeof(lnurlVendProdNames[0])) + " elements");
          if (lnurlVendProdNames[i] != ""){
+          Serial.println("/ name: " + String(lnurlVendProdNames[i]));
            if (virtkey == String(i+1)){
+            Serial.println("Product selection: " + lnurlVendProdNames[i]);
              selection = virtkey;
              amount = lnurlVendProdAmounts[i].toFloat() * 100;
+             Serial.println("makeLNURL");
              makeLNURL();
+             Serial.println("qrShowCode");
              qrShowCode();
              inputs = "";
              int pinAttempts = 0;
-             while (cntr == false){
+             Serial.println("while (innerCntr)");
+             while (innerCntr == false){
                char key = keypad.getKey();
                if (key != NO_KEY){
+                Serial.println("innerCntr Taste: " + String(key));
                  virtkey = String(key);
                    if (virtkey == "*"){
                      tft.fillScreen(TFT_BLACK);
@@ -498,7 +507,7 @@ void loop() {
                      inputs = "";  
                      nosats = "";
                      virtkey = "";
-                     cntr = true;
+                     innerCntr = true;
                    }
                    else{
                      showPin();
@@ -507,10 +516,13 @@ void loop() {
                }
                if(inputs.length() == 4 && inputs.toInt() == randomPin){
                  if(selection == String(i+1)){
-                   digitalWrite(lnurlVendProdPins[i].toInt(), HIGH);
-                   delay(lnurlVendTime);
+                   Serial.println("selection == " + String(i+1));
+                   Serial.println("digitalWrite LOW/HIGH");
                    digitalWrite(lnurlVendProdPins[i].toInt(), LOW);
-                   cntr = true;
+                   delay(lnurlVendTime);
+                   digitalWrite(lnurlVendProdPins[i].toInt(), HIGH);
+                   innerCntr = true;
+                   Serial.println("digitalWrite LOW/HIGH - fertig");
                  }
                  tft.fillScreen(TFT_BLACK);
                  tft.setCursor(0, 0);
@@ -519,7 +531,8 @@ void loop() {
                  inputs = "";  
                  nosats = "";
                  virtkey = "";
-                 cntr = true;
+                 innerCntr = true;
+                 Serial.println("digitalWrite LOW/HIGH - fertig und abgeschlossen");
                }
                else if (inputs.length() == 4 && inputs.toInt() != randomPin){
                  wrongPin();
@@ -530,7 +543,7 @@ void loop() {
                  pinAttempts ++;
                  if (pinAttempts > 2){
                    tooManyAttempts();
-                   cntr = true;
+                   innerCntr = true;
                    delay(3000);
                  }
                  delay(2000);
@@ -541,6 +554,7 @@ void loop() {
          }
        }  
        if (virtkey == "*"){
+        Serial.println("if (virtkey == *)");
           tft.fillScreen(TFT_BLACK);
           tft.setCursor(0, 0);
           tft.setTextColor(TFT_WHITE);
@@ -552,17 +566,39 @@ void loop() {
       }
     }
     delay(200);
-    if (millis()-check>500000){   
+    
+    if (millis()-check>600000){ 
       aaannndddSleep();
-      delay(3000);
+      delay(2000);
       gotoSleep();
     } 
   }
+  }
+FaultNoString(); 
+Serial.println("[END]");
+delay(10000); 
 }
 
 ///////////DISPLAY///////////////
 
+void FaultNoString(){
+  Serial.println("FaultNoString()");  
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_MAGENTA, TFT_BLACK);
+  tft.setTextSize(2);
+  tft.setCursor(15, 20);
+  tft.println("   Fault");
+  tft.setCursor(15, 40);
+  tft.println(" No String");
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setCursor(15, 100);
+  tft.setTextSize(1);
+  tft.println("Set wallet string first");
+}
+
+
 void tooManyAttempts(){
+  Serial.println("tooManyAttempts()");  
   tft.setTextSize(2);
   tft.fillScreen(TFT_BLACK);
   tft.setCursor(0, 55);
@@ -572,6 +608,7 @@ void tooManyAttempts(){
 }
 
 void aaannndddSleep(){
+  Serial.println("aaannndddSleep()");  
   tft.setTextSize(2);
   tft.fillScreen(TFT_BLACK);
   tft.setCursor(0, 55);
@@ -580,6 +617,7 @@ void aaannndddSleep(){
 }
 
 void wrongPin(){
+  Serial.println("wrongPin()");  
   tft.setTextSize(2);
   tft.fillScreen(TFT_BLACK);
   tft.setCursor(0, 55);
@@ -588,26 +626,28 @@ void wrongPin(){
 }
 
 void portalLaunch(){
+  Serial.println("portalLaunch()");  
   tft.fillScreen(TFT_BLACK);
-  tft.setTextColor(TFT_PURPLE, TFT_BLACK);
+  tft.setTextColor(TFT_MAGENTA, TFT_BLACK);
   tft.setTextSize(2);
   tft.setCursor(15, 50);
   tft.println("AP LAUNCHED");
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setCursor(0, 100);
+  tft.setCursor(15, 100);
   tft.setTextSize(1);
   tft.println("WHEN FINISHED RESET");
 }
 
 void wakeUpScreen(){
+  Serial.println("wakeUpScreen()");  
   digitalWrite(22, HIGH);
   delay(500);
-  digitalWrite(3, HIGH);
   tft.begin();
   tft.setRotation(1);
 }
 
 void qrShowCode(){
+  Serial.println("qrShowCode()"); 
   tft.fillScreen(TFT_WHITE);
   qrData.toUpperCase();
   const char* lnurlChar = qrData.c_str();
@@ -634,6 +674,7 @@ void qrShowCode(){
 
 void selectProduct()
 {
+  Serial.println("selectProduct()"); 
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setTextSize(2);
@@ -646,6 +687,7 @@ void selectProduct()
 }
 
 void showPin(){
+  Serial.println("showPin()"); 
   inputs += virtkey;
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
@@ -662,6 +704,7 @@ void showPin(){
 
 void logo()
 {
+  Serial.println("logo()"); 
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_ORANGE, TFT_BLACK);
   tft.setTextSize(2);
@@ -676,11 +719,37 @@ void logo()
   delay(2000);
 }
 
+
 void gotoSleep(){ 
-  touchAttachInterrupt(T5, wakeUpScreen, 20);
+  Serial.println("gotoSleep()");
+  // WakeUp with T7-T9,T2 = GPIO 27,33,32,2
+  touchAttachInterrupt(T7, wakeUpScreen, 20);
+  touchAttachInterrupt(T8, wakeUpScreen, 20);
+  touchAttachInterrupt(T9, wakeUpScreen, 20);
+  touchAttachInterrupt(T2, wakeUpScreen, 20);
   esp_sleep_enable_touchpad_wakeup();
   esp_deep_sleep_start();
 }
+
+void print_wakeup_touchpad(){
+  Serial.println("print_wakeup_touchpad()");
+  touchPin = esp_sleep_get_touchpad_wakeup_status();
+  switch(touchPin)
+  {
+    case 0  : Serial.println("Touch detected on GPIO 4"); break;
+    case 1  : Serial.println("Touch detected on GPIO 0"); break;
+    case 2  : Serial.println("Touch detected on GPIO 2"); break;
+    case 3  : Serial.println("Touch detected on GPIO 15"); break;
+    case 4  : Serial.println("Touch detected on GPIO 13"); break;
+    case 5  : Serial.println("Touch detected on GPIO 12"); break;
+    case 6  : Serial.println("Touch detected on GPIO 14"); break;
+    case 7  : Serial.println("Touch detected on GPIO 27"); break;
+    case 8  : Serial.println("Touch detected on GPIO 33"); break;
+    case 9  : Serial.println("Touch detected on GPIO 32"); break;
+    default : Serial.println("First start or wakeup not by touchpad"); break;
+  }
+}
+
 void to_upper(char * arr){
   for (size_t i = 0; i < strlen(arr); i++)
   {
@@ -726,7 +795,7 @@ void makeLNURL()
   preparedURL += toBase64(payload, payload_len, BASE64_URLSAFE | BASE64_NOPADDING);
   
 
-  Serial.println(preparedURL);
+  Serial.println("LNURL link: " + preparedURL);
   char Buf[200];
   preparedURL.toCharArray(Buf, 200);
   char *url = Buf;
